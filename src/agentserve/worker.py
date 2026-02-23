@@ -27,6 +27,7 @@ from a2a.types import (
 from pydantic import BaseModel, ConfigDict, Field, PrivateAttr
 
 from agentserve.broker import Broker, TaskOperation
+from agentserve.event_emitter import DefaultEventEmitter, EventEmitter
 from agentserve.storage import Storage
 
 logger = logging.getLogger(__name__)
@@ -53,8 +54,7 @@ class TaskContext(BaseModel):
     parts: list[Any] = Field(default_factory=list)
     metadata: dict = Field(default_factory=dict)
 
-    _broker: Broker = PrivateAttr()
-    _storage: Storage = PrivateAttr()
+    _emitter: EventEmitter = PrivateAttr()
     _cancel_event: anyio.Event = PrivateAttr()
 
     @property
@@ -68,17 +68,17 @@ class TaskContext(BaseModel):
 
     async def complete(self, message: str | None = None) -> None:
         """Mark the task as completed."""
-        await self._storage.update_task(self.task_id, state=TaskState.completed.value)
+        await self._emitter.update_task(self.task_id, state=TaskState.completed.value)
         await self._emit_status(TaskState.completed, message_text=message)
 
     async def fail(self, reason: str) -> None:
         """Mark the task as failed."""
-        await self._storage.update_task(self.task_id, state=TaskState.failed.value)
+        await self._emitter.update_task(self.task_id, state=TaskState.failed.value)
         await self._emit_status(TaskState.failed, message_text=reason)
 
     async def request_input(self, question: str) -> None:
         """Transition to input-required state."""
-        await self._storage.update_task(self.task_id, state=TaskState.input_required.value)
+        await self._emitter.update_task(self.task_id, state=TaskState.input_required.value)
         await self._emit_status(TaskState.input_required, message_text=question)
 
     async def emit_artifact(
@@ -99,12 +99,12 @@ class TaskContext(BaseModel):
             metadata=metadata or {},
         )
         if not append:
-            await self._storage.update_task(
+            await self._emitter.update_task(
                 self.task_id,
                 state=TaskState.working.value,
-                new_artifacts=[artifact],
+                artifacts=[artifact],
             )
-        await self._broker.send_stream_event(
+        await self._emitter.send_event(
             self.task_id,
             TaskArtifactUpdateEvent(
                 kind="artifact-update",
@@ -161,7 +161,7 @@ class TaskContext(BaseModel):
                 else None
             ),
         )
-        await self._broker.send_stream_event(
+        await self._emitter.send_event(
             self.task_id,
             TaskStatusUpdateEvent(
                 kind="status-update",
@@ -174,7 +174,7 @@ class TaskContext(BaseModel):
 
 
 class Worker(ABC):
-    """Abstract base class – implement handle() to build an A2A agent."""
+    """Abstract base class â€" implement handle() to build an A2A agent."""
 
     @abstractmethod
     async def handle(self, ctx: TaskContext) -> TaskResult:
@@ -311,8 +311,7 @@ class _WorkerAdapter:
             parts=message.parts,
             metadata=message.metadata or {},
         )
-        ctx._broker = self._broker
-        ctx._storage = self._storage
+        ctx._emitter = DefaultEventEmitter(self._broker, self._storage)
         ctx._cancel_event = cancel_event
         return ctx
 

@@ -1,7 +1,8 @@
-"""agentserve – A2A agent framework in one import."""
+"""agentserve â€" A2A agent framework in one import."""
 
 from agentserve.agent_card import AgentCardConfig
 from agentserve.broker import Broker, InMemoryBroker
+from agentserve.event_emitter import DefaultEventEmitter, EventEmitter
 from agentserve.server import A2AServer
 from agentserve.storage import (
     DuplicateMessageIdError,
@@ -23,6 +24,8 @@ __all__ = [
     "TaskResult",
     "Broker",
     "InMemoryBroker",
+    "EventEmitter",
+    "DefaultEventEmitter",
     "Storage",
     "InMemoryStorage",
     "TaskManager",
